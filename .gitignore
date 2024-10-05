@@ -12,6 +12,7 @@ _out/
 old/
 winapi/
 
+common.h
 FileNod.h
 Nod.h
 Xternal.h
