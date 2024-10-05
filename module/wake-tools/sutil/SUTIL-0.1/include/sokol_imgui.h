@@ -680,7 +680,7 @@ sg_range indices;
 bool is_osx;
 _simgui_image_pool_t image_pool;
 } _simgui_state_t;
-static __thread _simgui_state_t _simgui;
+__thread static _simgui_state_t _simgui;
 
 /*
 Embedded source code compiled with:
@@ -3125,14 +3125,12 @@ drop those, also don't forward characters if some
 modifiers have been pressed
 */
 _simgui_update_modifiers(io, ev->modifiers);
-/*
 if ((ev->char_code >= 32) &&
 (ev->char_code != 127) &&
-(0 == (ev->modifiers & (SAPP_MODIFIER_CTRL|SAPP_MODIFIER_SUPER))))
-{*/
-printf("\naaaaaaaaaaaaaaa\n %c", ev->char_code);
+(0 == (ev->modifiers & (SAPP_MODIFIER_ALT|SAPP_MODIFIER_CTRL|SAPP_MODIFIER_SUPER))))
+{
 simgui_add_input_character(ev->char_code);
-//}
+}
 break;
 case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
 // simulate a Ctrl-V key down/up
