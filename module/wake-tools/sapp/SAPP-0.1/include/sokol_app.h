@@ -3906,6 +3906,7 @@ max_fps = [NSScreen.mainScreen maximumFramesPerSecond];
 #endif
 _sapp.macos.mtl_device = MTLCreateSystemDefaultDevice();
 _sapp.macos.view = [[_sapp_macos_view alloc] init];
+_sapp.macos.window.backgroundColor = [NSColor clearColor];_sapp.macos.window.opaque = NO;if ([_sapp.macos.view.layer isKindOfClass:[CAMetalLayer class]]) {CAMetalLayer *metalLayer = (CAMetalLayer *)_sapp.macos.view.layer;metalLayer.opaque = NO;}
 [_sapp.macos.view updateTrackingAreas];
 _sapp.macos.view.preferredFramesPerSecond = max_fps / _sapp.swap_interval;
 _sapp.macos.view.device = _sapp.macos.mtl_device;

@@ -1,0 +1,290 @@
+/*|| https://wake.tools ||                                                           || JIT C | Wake Alpha ||
+  | --------------------------------------------------------------------------------------------------+-+++|>
+  +- Hello Clear                                                                                || @ Maeiky  ||
+  |---------------------------------------------------------------------------------------------------+-+++|>
+  +- Hello Sokol Clear Frame with Debug info
+  |
+  |-----|--------|---------------------|-----------------------------|--------------------------------+-+++|>
+   <:jit:>
+      #Jit.add hello_osx.sm
+      >
+      {wk.module}wake-tools/tcc/TCC-1.27/tcc-osx-d.exe
+      -x c
+      -c {this}
+
+      -shared
+      -bench
+      
+      
+      -L {wk.module}wake-tools/sutil/SUTIL-0.1/    -l sutil-osx-d
+      -L {wk.module}wake-tools/imgui/ImGUI-0.1/    -l imgui-osx-d
+      -L {wk.module}wake-tools/jit/JIT-0.1/        -l jit-osx-d
+      -L {wk.module}wake-tools/sapp/SAPP-0.1/      -l sapp-osx-d
+      -L {wk.module}wake-tools/sgfx/SGFX-0.1/      -l sgfx-osx-d
+
+      
+      -L {wk.module}wake-tools/tcc/TCC-1.27/lib/    
+
+      -I {wk.module}wake-tools/tcc/TCC-1.27/include/
+      -I {wk.module}wake-tools/jit/JIT-0.1/include/
+      
+      -I {wk.module}wake-tools/imgui/ImGUI-0.1/include/
+      -I {wk.module}wake-tools/sapp/SAPP-0.1/include/
+      -I {wk.module}wake-tools/sgfx/SGFX-0.1/include/
+      -I {wk.module}wake-tools/sutil/SUTIL-0.1/include/
+          
+      -o {jit.file}
+      >
+      #Jit.reload
+   <:end:>
+  |-----|--------|---------------------|-----------------------------|--------------------------------+-+++|>
+*/
+#include "jit.h"
+
+
+//#define USE_DBG_UI
+#include "sokol.h"
+#include "sokol_imgui.h" 
+#include "cimgui.h" 
+
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include "cimedit.h"
+
+char* text_data;
+jit_handle jhandle; 
+   
+static bool no_titlebar = false;
+static bool no_scrollbar = false;
+static bool no_menu = true;
+static bool no_move = false;
+static bool no_resize = false;
+static bool no_collapse = false;
+static bool no_close = false;
+static bool no_nav = false;
+static bool no_bring_to_front = false;
+static bool no_docking = false;
+static bool unsaved_document = false;
+
+
+typedef struct Buffer{ char* data; size_t size;} Buffer;
+Buffer gfile = {};
+
+typedef struct {
+    uint64_t last_time;
+    bool show_test_window;
+    bool show_another_window;
+    sg_pass_action pass_action;
+} state_t;
+static state_t state;
+
+
+TextEditor* editor;
+//
+void init_Text_Editor(void) {
+
+   /// Init text editor
+   editor = ImEdit_New();
+   //
+   ImEdit_SetColor(editor, ImEdit_Color_Background, 0x0F001020 );
+   //ImEdit_SetText(editor, path.data);
+   ImEdit_SetText(editor, gfile.data ? gfile.data : "(no data)");
+  
+   LanguageDefinition* c_lang = ImEdit_GetLanguageDefinition(editor,"CC");
+   ImEdit_SetComment(c_lang, "//", "/*", "*/");
+
+   ImEdit_AddPreprocIdentifiers(c_lang, "JIT_MAIN", "#define TEST test!");
+   ImEdit_AddIdentifiers(c_lang, "target_word", "static char target_word[128]");
+
+   ImEdit_AddErrorMarkers(editor, 20, "#Errror herrreeee!!!!");
+
+   ImEdit_AddKeywords(c_lang, "TextEditor");
+
+   ImEdit_ClearRegEx(c_lang);
+   //ImEdit_AddRegEx(c_lang, "[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?[fF]?", ImEdit_Color_ErrorMarker);
+   //ImEdit_AddRegEx(c_lang, "0x[0-9a-fA-F]+", ImEdit_Color_ErrorMarker);
+   //ImEdit_AddRegEx(c_lang, "[a-zA-Z_]", ImEdit_Color_ErrorMarker);
+   //ImEdit_AddRegEx(c_lang, "[a-z]", ImEdit_Color_ErrorMarker);
+
+   // Variables entièrement en majuscules
+   ImEdit_AddRegEx(c_lang, "\\b[A-Z_][A-Z0-9_]*\\b", ImEdit_Color_Number);
+   //  ImEdit_AddRegEx(c_lang, "\\b[A-Z]+\\b", ImEdit_Color_Number);
+
+   // Variables commençant par une majuscule suivie d'une minuscule
+   //ImEdit_AddRegEx(c_lang, "\\b[A-Z][a-z0-9_]*\\b", ImEdit_Color_ErrorMarker);
+   ImEdit_AddRegEx(c_lang, "[A-Z][a-z0-9_]*", ImEdit_Color_ErrorMarker);
+
+   // Nombres hexadécimaux (commençant par 0x suivi de chiffres hexadécimaux de 0 à 9 et lettres de a à f)
+   ImEdit_AddRegEx(c_lang, "0[xX][0-9a-fA-F]+[Uu]?[lL]?[lL]?", ImEdit_Color_Number);
+
+   // Chaînes de caractères entre guillemets (")
+   ImEdit_AddRegEx(c_lang, "L?\\\"(\\\\.|[^\\\"])*\\\"", ImEdit_Color_String);
+
+   // Chaînes de caractères entre apostrophes (')
+   ImEdit_AddRegEx(c_lang, "\\\'[^\\\']*\\\'", ImEdit_Color_String);
+
+   // Nombres flottants ou entiers, avec ou sans exposant, suffixes f ou F pour les flottants
+   ImEdit_AddRegEx(c_lang, "[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?[fF]?", ImEdit_Color_Number);
+
+   // Nombres entiers ou flottants, avec suffixes U, u, L ou l
+   ImEdit_AddRegEx(c_lang, "[+-]?[0-9]+[Uu]?[lL]?[lL]?", ImEdit_Color_Number);
+
+   // Nombres octaux (commençant par 0 suivi de chiffres de 0 à 7)
+   ImEdit_AddRegEx(c_lang, "0[0-7]+[Uu]?[lL]?[lL]?", ImEdit_Color_Number);
+
+   // Identificateurs (commençant par une lettre ou un trait de soulignement, suivi de lettres, chiffres ou traits de soulignement)
+   ImEdit_AddRegEx(c_lang, "[a-zA-Z_][a-zA-Z0-9_]*", ImEdit_Color_Identifier);
+
+   // Ponctuations
+   ImEdit_AddRegEx(c_lang, "[\\[\\]\\{\\}\\!\\%\\^\\&\\*\\(\\)\\-\\+\\=\\~\\|\\<\\>\\?\\/\\;\\,\\.]", ImEdit_Color_Punctuation);
+   
+   ImEdit_SetLanguageDefinition(editor,c_lang);
+}
+
+
+void text_editor(){
+     
+   igText("Handle %d", jhandle);
+     
+   igBeginChild_Str("ChildL", (ImVec2){200, 0}, false,  ImGuiWindowFlags_MenuBar);
+      //Left Child
+       for (int i = 0; i < 100; i++) igText("%04d: scrollable region", i);
+      
+   igEndChild();
+   igSameLine(0,0);
+   igBeginChild_Str("ChildR", (ImVec2){0, 0}, false,  ImGuiWindowFlags_MenuBar);
+      //Right Child
+      igBeginMenuBar();
+         if(igBeginMenu("File", true)){
+            
+            
+         igEndMenu();}
+      igEndMenuBar();
+      
+      ImEdit_Render(editor, "TextEditor", (ImVec2){0, 0}, true);
+     
+      if (state.show_test_window) {
+        igSetNextWindowPos((ImVec2){460,20}, ImGuiCond_FirstUseEver, (ImVec2){0,0});
+        igShowDemoWindow(0);
+      }
+      
+      
+   igEndChild();
+   
+   
+}
+
+bool text_editor_open = true;
+bool* p_open = &text_editor_open;
+void text_editor_frame(int width, int height){
+        
+   ImGuiWindowFlags window_flags = 0;
+   if (no_titlebar)        window_flags |= ImGuiWindowFlags_NoTitleBar;
+   if (no_scrollbar)       window_flags |= ImGuiWindowFlags_NoScrollbar;
+   if (!no_menu)           window_flags |= ImGuiWindowFlags_MenuBar;
+   if (no_move)            window_flags |= ImGuiWindowFlags_NoMove;
+   if (no_resize)          window_flags |= ImGuiWindowFlags_NoResize;
+   if (no_collapse)        window_flags |= ImGuiWindowFlags_NoCollapse;
+   if (no_nav)             window_flags |= ImGuiWindowFlags_NoNav;
+   if (no_bring_to_front)  window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus;
+   if (no_docking)         window_flags |= ImGuiWindowFlags_NoDocking;
+   if (unsaved_document)   window_flags |= ImGuiWindowFlags_UnsavedDocument;
+   if (no_close)           p_open = NULL; // Don't pass our bool* to Begin
+
+   //window_flags |= ImGuiWindowFlags_NoBackground;
+   window_flags =  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration |  ImGuiWindowFlags_NoBringToFrontOnFocus ;
+
+  igSetNextWindowPos((ImVec2){0,0}, ImGuiCond_FirstUseEver, (ImVec2){0,0});
+  igSetNextWindowSize((ImVec2){width,height}, 0);
+  if (*p_open&& igBegin("Text editor", p_open, window_flags)){
+      text_editor();
+      igEnd();
+   }
+   
+}
+
+
+void init(void) {
+    sg_setup(&(sg_desc){
+        .environment = sglue_environment(),
+    });
+    simgui_setup(&(simgui_desc_t){
+         //.logger.func = slog_func,
+    });
+   //
+   state = (state_t) {
+      .show_test_window = false,
+      .pass_action = {
+         .colors[0] = {
+             .load_action = SG_LOADACTION_CLEAR,
+             .clear_value = { 0.0f, 0.0f, 0.0f, 0.0f }
+         }
+      }
+   };
+    //
+    init_Text_Editor();
+}
+
+void frame(void) {
+   const int width = sapp_width();
+   const int height = sapp_height();
+   simgui_new_frame(&(simgui_frame_desc_t){
+      .width = width,
+      .height = height,
+      .delta_time = sapp_frame_duration(),
+      .dpi_scale = sapp_dpi_scale()
+   });
+   //
+   text_editor_frame(width, height);
+   //
+   sg_begin_pass(&(sg_pass){ .action = state.pass_action, .swapchain = sglue_swapchain() });
+   simgui_render();
+   sg_end_pass();
+   sg_commit();
+}
+
+void cleanup(void) {
+   simgui_shutdown();
+   sg_shutdown();
+}
+
+void input(const sapp_event* event) {
+   simgui_handle_event(event);
+}
+
+int read_file(const char *filename, Buffer* buf) {
+   FILE *file = fopen(filename, "rb");
+   if (!file) return -1;
+   fseek(file, 0, SEEK_END);
+   size_t size = ftell(file);
+   rewind(file);
+   if (size + 1 > buf->size && !(buf->data = realloc(buf->data, size + 1))) {}//return -1;
+   buf->size = size + 1;
+   fread(buf->data, 1, size, file);
+   buf->data[size] = 0;
+   fclose(file);
+   return 0;
+}
+
+int main(int argc, char* argv[]) {
+   read_file(argv[0], &gfile);
+   
+   sapp_desc desc = (sapp_desc){
+      .init_cb = init,
+      .frame_cb = frame,
+      .cleanup_cb = cleanup,
+      .event_cb = input,
+      .width = 1024,
+      .height = 768,
+      .window_title = "cimgui (sokol-app)",
+      .ios_keyboard_resizes_canvas = false,
+      .icon.sokol_default = true,
+      .enable_clipboard = true,
+      .swap_interval = 1,
+   };
+   
+   sapp_run(&desc);
+   
+   sapp_quit();
+   return 0;
+}
+

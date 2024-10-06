@@ -680,7 +680,7 @@ sg_range indices;
 bool is_osx;
 _simgui_image_pool_t image_pool;
 } _simgui_state_t;
-__thread static _simgui_state_t _simgui;
+static _simgui_state_t _simgui;
 
 /*
 Embedded source code compiled with:
